@@ -1,4 +1,4 @@
-public class DeviceDto
+public class DeviceDTO
 {
     public String DeviceId { get; set; }
     public long Timestamp { get; set; }

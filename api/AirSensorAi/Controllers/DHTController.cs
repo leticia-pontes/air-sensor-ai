@@ -14,7 +14,7 @@ public class DHTController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Post([FromBody] DeviceDto deviceData)
+    public async Task<IActionResult> Post([FromBody] DeviceDTO deviceData)
     {
         await _client
             .Child("Leituras")
