@@ -7,13 +7,6 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.PropertyNamingPolicy = null;
 });
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll",
-        policy => policy.AllowAnyOrigin()
-                        .AllowAnyMethod()
-                        .AllowAnyHeader());
-});
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddSingleton<FirebaseClient>(provider =>
@@ -32,7 +25,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapGet("/teste", () => "ok");
-app.UseCors("AllowAll");
 app.UseRouting();
 app.MapControllers();
 app.Run();
