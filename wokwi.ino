@@ -1,30 +1,147 @@
-using Firebase.Database;
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <DHT.h>
 
-var builder = WebApplication.CreateBuilder(args);
+// Configurações do Sensor DHT22
+#define DHTPIN 4
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
 
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddControllers().AddJsonOptions(options =>
-{
-    options.JsonSerializerOptions.PropertyNamingPolicy = null;
-});
-builder.Services.AddSwaggerGen();
+// Configurações da Rede Wokwi
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
 
-builder.Services.AddSingleton<FirebaseClient>(provider =>
-{
-    var basePath = Environment.GetEnvironmentVariable("FIREBASE_BASE_PATH")
-                   ?? throw new InvalidOperationException("FIREBASE_BASE_PATH environment variable is not set");
-    return new FirebaseClient(basePath);
-});
+// URL da API no Replit
+const char* serverUrl = "https://air-sensor-ai--leticia-hub.replit.app/api/DHT";
 
-var app = builder.Build();
+// Controle de Tempo
+unsigned long sendInterval = 10000; // Envia a cada 10 segundos
+unsigned long lastSend = 0;
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  
+  dht.begin();
+  connectWiFi();
+  
+  Serial.println("\n--- Sistema Monitor de Ar Iniciado ---");
 }
 
-app.MapGet("/teste", () => "ok");
-app.UseRouting();
-app.MapControllers();
-app.Run();
+void loop() {
+
+  if (millis() - lastSend > sendInterval) {
+    lastSend = millis();
+
+    float temperature;
+    float humidity;
+
+    if (readSensor(temperature, humidity)) {
+
+      // Edge computing: decisão local
+      if (temperature > 30) {
+
+        String jsonPayload = buildJson(temperature, humidity);
+
+        sendPOST(jsonPayload);
+        sendGET();
+      }
+
+    }
+  }
+}
+
+// --- Funções Auxiliares ---
+
+void connectWiFi() {
+  Serial.println("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi conectado!");
+  Serial.print("IP do ESP32: ");
+  Serial.println(WiFi.localIP());
+}
+
+bool readSensor(float &temperature, float &humidity) {
+  humidity = dht.readHumidity();
+  temperature = dht.readTemperature();
+
+  if (isnan(humidity) || isnan(temperature)) {
+    Serial.println("Erro crítico: Falha na leitura do sensor DHT22!");
+    return false;
+  }
+
+  Serial.printf("\n[Sensor] Temp: %.2f°C | Umid: %.2f%%\n", temperature, humidity);
+  return true;
+}
+
+String buildJson(float temperature, float humidity) {
+  String json = "{";
+  json += "\"DeviceId\":\"esp32-01\",";
+  json += "\"Timestamp\":" + String(millis()) + ",";
+  json += "\"Temperature\":" + String(temperature, 2) + ",";
+  json += "\"Humidity\":" + String(humidity, 2);
+  json += "}";
+
+  return json;
+}
+
+// ----------------------------------------------------------------------------
+// Durante os testes iniciais a requisição retornava -1 devido à validação TLS.
+// client.setInsecure() foi usado temporariamente para depuração.
+// A abordagem correta é incluir o certificado Root CA da API em vez de setClientInsecure().
+//
+// Formas de resolver:
+// - Navegador -> cadeado -> certificado -> exportar Root CA (PEM)
+// - ou: openssl s_client -showcerts -connect api.exemplo.com:443
+void sendPOST(String payload) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure client;
+    client.setInsecure(); // Não recomendado, mas necessário para permitir conexões HTTPS ao executar
+
+    HTTPClient http;
+
+    Serial.println(">> Iniciando POST para o Replit...");
+    if (http.begin(client, serverUrl)) {
+      http.addHeader("Content-Type", "application/json");
+
+      int httpResponseCode = http.POST(payload);
+
+      if (httpResponseCode > 0) {
+        Serial.printf(">> POST Sucesso! Código: %d\n", httpResponseCode);
+        Serial.println(">> Resposta: " + http.getString());
+      } else {
+        Serial.printf(">> Erro no POST: %s (%d)\n", http.errorToString(httpResponseCode).c_str(), httpResponseCode);
+      }
+      http.end();
+    }
+  }
+}
+
+void sendGET() {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+
+    Serial.println(">> Iniciando GET para verificar lista...");
+    if (http.begin(client, serverUrl)) {
+      int httpResponseCode = http.GET();
+
+      if (httpResponseCode > 0) {
+        Serial.printf(">> GET Sucesso! Código: %d\n", httpResponseCode);
+        Serial.println(">> Dados Atuais na API: " + http.getString());
+      } else {
+        Serial.printf(">> Erro no GET: %s (%d)\n", http.errorToString(httpResponseCode).c_str(), httpResponseCode);
+      }
+      http.end();
+    }
+  }
+}
